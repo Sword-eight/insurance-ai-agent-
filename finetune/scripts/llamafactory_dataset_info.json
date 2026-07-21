@@ -1,0 +1,24 @@
+{
+  "insurance_train": {
+    "file_name": "D:\\python file\\pythonProject\\llm-cookbook-main\\insurance_ai_agent\\finetune\\data\\insurance_train.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": [
+        "instruction",
+        "input",
+        "output"
+      ]
+    }
+  },
+  "insurance_test": {
+    "file_name": "D:\\python file\\pythonProject\\llm-cookbook-main\\insurance_ai_agent\\finetune\\data\\insurance_test.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": [
+        "instruction",
+        "input",
+        "output"
+      ]
+    }
+  }
+}

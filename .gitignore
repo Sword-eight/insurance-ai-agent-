@@ -1,0 +1,54 @@
+# ── 敏感文件 ──
+.env
+*.key
+*.pem
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── 虚拟环境 ──
+venv/
+.venv/
+env/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── 大文件 / 二进制 ──
+# 向量索引
+data/vectorstore/
+# 模型权重
+finetune/models/
+finetune/outputs/adapter/adapter_model.safetensors
+finetune/outputs/adapter/*.safetensors
+finetune/outputs/checkpoint-*/adapter_model.safetensors
+finetune/outputs/checkpoint-*/optimizer.pt
+finetune/outputs/checkpoint-*/rng_state.pth
+finetune/outputs/checkpoint-*/scaler.pt
+finetune/outputs/checkpoint-*/scheduler.pt
+finetune/outputs/checkpoint-*/training_args.bin
+# LLaMA-Factory (第三方)
+LLaMA-Factory/
+# 数据集（敏感，包含从 PDF 提取的内容）
+finetune/data/insurance_train.json
+finetune/data/insurance_test.json
+
+# ── 日志 ──
+logs/
+
+# ── Streamlit ──
+.streamlit/
+
+# ── 临时文件 ──
+*.tmp
+*.bak
+_test*.py
+_t*.py

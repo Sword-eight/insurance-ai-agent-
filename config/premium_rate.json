@@ -1,0 +1,42 @@
+{
+  "description": "保费费率简化配置表 - 基于职业类别的年度费率（每万元保额）",
+  "version": "1.0.0",
+  "rate_table": {
+    "1类": {
+      "name": "办公室职员",
+      "annual_rate_per_10k": 35,
+      "examples": "程序员、行政、财务、教师"
+    },
+    "2类": {
+      "name": "轻度体力劳动者",
+      "annual_rate_per_10k": 55,
+      "examples": "销售、快递员、司机"
+    },
+    "3类": {
+      "name": "中度体力劳动者",
+      "annual_rate_per_10k": 85,
+      "examples": "建筑工人、焊工、汽修工"
+    },
+    "4类": {
+      "name": "高风险职业",
+      "annual_rate_per_10k": 150,
+      "examples": "矿工、高空作业、消防员"
+    }
+  },
+  "gender_factor": {
+    "男": 1.0,
+    "女": 0.92
+  },
+  "age_factor": {
+    "description": "年龄系数：基础年龄30岁为基准=1.0",
+    "base_age": 30,
+    "per_year_increase": 0.02
+  },
+  "term_factor": {
+    "description": "保险期限折扣：年限越长，年均费率越低",
+    "10年": 0.85,
+    "20年": 0.78,
+    "30年": 0.72,
+    "终身": 0.68
+  }
+}
