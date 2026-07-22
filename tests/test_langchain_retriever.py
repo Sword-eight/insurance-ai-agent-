@@ -7,8 +7,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["RAG_ENGINE"] = "langchain"
 
 from rag.langchain.retriever import LangChainRetriever
+from rag.langchain.vector_store import VectorStoreManager
 
-r = LangChainRetriever()
+vs = VectorStoreManager()
+r = LangChainRetriever(vector_store_manager=vs)
 
 # 加载已有索引
 assert r._vector_store_manager.index_exists(), "索引不存在，请先上传PDF构建索引"

@@ -18,11 +18,20 @@ class LangChainRetriever(BaseRetriever):
     LangChain 检索器。
     封装 FAISS 检索逻辑，提供统一的检索接口。
     实现 BaseRetriever 接口。
+
+    支持依赖注入：可传入外部 VectorStoreManager 实例以共享状态，
+    避免多个 Retriever 各自加载同一份 FAISS 索引到内存。
     """
 
-    def __init__(self) -> None:
-        """初始化检索器。"""
-        self._vector_store_manager = VectorStoreManager()
+    def __init__(self, vector_store_manager: VectorStoreManager | None = None) -> None:
+        """
+        初始化检索器。
+
+        Args:
+            vector_store_manager: 可选的外部 VectorStoreManager 实例。
+                                  不传则内部创建（向后兼容）。
+        """
+        self._vector_store_manager = vector_store_manager or VectorStoreManager()
 
     def retrieve(
         self,

@@ -1,7 +1,8 @@
 """
 Insurance AI Agent - 保险知识库检索工具
 封装 RAG 检索为 LangChain Tool，供 LangGraph Agent 调用。
-根据 config.RAG_ENGINE 自动选择 LangChain 或 LlamaIndex 实现。
+
+生命周期：Retriever 由 init_services() 创建后注入，Tool 不自行 new。
 """
 
 from typing import Any, Dict, Type
@@ -9,7 +10,6 @@ from typing import Any, Dict, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from config import get_rag_engine
 from rag.base_retriever import BaseRetriever
 from utils.logger import get_logger
 from utils.helpers import Timer
@@ -32,7 +32,7 @@ class InsuranceRAGTool(BaseTool):
     基于 RAG 管道检索保险条款、理赔规则等信息，
     返回检索到的文本片段及来源引用。
 
-    根据 config.RAG_ENGINE 自动选择底层实现。
+    依赖注入：Retriever 由外部创建并注入，Tool 不关心底层实现。
     """
 
     name: str = "insurance_rag_search"
@@ -45,31 +45,19 @@ class InsuranceRAGTool(BaseTool):
     )
     args_schema: Type[BaseModel] = InsuranceRAGInput
 
-    # 检索器实例（延迟初始化，根据 RAG_ENGINE 选择）
-    _retriever: BaseRetriever | None = None
+    # 检索器实例（外部注入）
+    _retriever: BaseRetriever
 
-    def __init__(self, **kwargs: Any) -> None:
-        """初始化工具，根据 RAG_ENGINE 创建对应的检索器。"""
+    def __init__(self, retriever: BaseRetriever, **kwargs: Any) -> None:
+        """
+        Args:
+            retriever: 检索器实例（LangChainRetriever 或 LlamaIndexRetriever）
+        """
         super().__init__(**kwargs)
-        self._retriever = self._create_retriever()
-        engine = get_rag_engine()
+        self._retriever = retriever
         logger.info(
-            f"InsuranceRAGTool 初始化: engine={engine}, "
-            f"retriever={type(self._retriever).__name__}"
+            f"InsuranceRAGTool 初始化: retriever={type(self._retriever).__name__}"
         )
-
-    @staticmethod
-    def _create_retriever() -> BaseRetriever:
-        """根据 RAG_ENGINE 创建对应的检索器实例。"""
-        engine = get_rag_engine()
-        if engine == "langchain":
-            from rag.langchain.retriever import LangChainRetriever
-            return LangChainRetriever()
-        elif engine == "llamaindex":
-            from rag.llamaindex.retriever import LlamaIndexRetriever
-            return LlamaIndexRetriever()
-        else:
-            raise ValueError(f"不支持的 RAG_ENGINE: {engine}，可选: langchain, llamaindex")
 
     def _run(self, query: str) -> str:
         """
@@ -85,12 +73,10 @@ class InsuranceRAGTool(BaseTool):
 
         try:
             with Timer("insurance_rag_search 总耗时") as timer:
-                # 执行检索
                 result: Dict[str, Any] = self._retriever.retrieve(
                     query=query, top_k=5
                 )
 
-                # 格式化为 LLM 可读文本
                 formatted: str = self._retriever.format_retrieval_for_llm(result)
 
                 logger.info(

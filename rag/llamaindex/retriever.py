@@ -45,11 +45,19 @@ class LlamaIndexRetriever(BaseRetriever):
 
     使用 LlamaIndex retriever 从 FAISS 索引中获取 Node 列表，
     不调用 LLM，不生成回答。仅做向量检索。
+
+    支持依赖注入：可传入外部 LlamaIndexBuilder 实例以共享索引。
     """
 
-    def __init__(self) -> None:
-        """初始化检索器。"""
-        self._builder = LlamaIndexBuilder()
+    def __init__(self, builder: LlamaIndexBuilder | None = None) -> None:
+        """
+        初始化检索器。
+
+        Args:
+            builder: 可选的外部 LlamaIndexBuilder 实例。
+                     不传则内部创建（向后兼容）。
+        """
+        self._builder = builder or LlamaIndexBuilder()
 
     # ------------------------------------------------------------------
     # 核心检索

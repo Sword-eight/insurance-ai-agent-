@@ -1,6 +1,8 @@
 """
 LlamaIndex Retriever 测试用例
 验证 LlamaIndex 索引构建、检索、格式化全流程。
+
+所有对象通过 DI 创建（Builder → Retriever）。
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -57,13 +59,12 @@ if doc_files:
     print("✅ 索引构建成功")
 
     # ============================================================
-    # 测试4：Retriever 检索
+    # 测试4：Retriever 检索（DI：注入同一个 builder）
     # ============================================================
-    retriever = LlamaIndexRetriever()
-    # 构建后 _builder 不同了，需要重新测试
     builder2 = LlamaIndexBuilder()
     if builder2.index_exists():
         builder2.load_index()
+    retriever = LlamaIndexRetriever(builder=builder2)
 
     class MockRetriever:
         def __init__(self, b):
@@ -99,9 +100,8 @@ if doc_files:
         assert 0 <= res["similarity_score"] <= 1
     print(f"✅ 相似度范围正常 (top: {result['results'][0]['similarity_score']:.4f})")
 
-    # 格式化
-    from rag.llamaindex.retriever import LlamaIndexRetriever as LI
-    li = LI()
+    # 格式化（DI：注入 builder2）
+    li = LlamaIndexRetriever(builder=builder2)
     formatted = li.format_retrieval_for_llm(result)
     assert "【来源" in formatted
     assert "引擎: LlamaIndex" in formatted
@@ -119,8 +119,8 @@ empty_result = {
     "results": [],
     "total_results": 0,
 }
-li = LlamaIndexRetriever()
-formatted = li.format_retrieval_for_llm(empty_result)
+li_empty = LlamaIndexRetriever(builder=LlamaIndexBuilder())
+formatted = li_empty.format_retrieval_for_llm(empty_result)
 assert formatted == "根据当前知识库无法确定。"
 print("✅ 空结果处理正确")
 

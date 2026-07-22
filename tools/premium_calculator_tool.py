@@ -1,6 +1,11 @@
 """
 Insurance AI Agent - 保费估算工具
 根据用户年龄、性别、保额、保险期限、职业类别估算保费。
+
+设计原则：
+  - Tool 只负责：接收 LLM 参数 → 委托 Service 计算 → 格式化输出
+  - 业务逻辑全部在 PremiumService 中，Tool 不做计算
+  - 如果将来改成 REST API，PremiumService 可直接复用
 """
 
 from typing import Any, Dict, Type
@@ -8,9 +13,9 @@ from typing import Any, Dict, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from config import PREMIUM_RATE_PATH
+from services.premium_service import PremiumService
 from utils.logger import get_logger
-from utils.helpers import load_json, Timer
+from utils.helpers import Timer
 
 logger = get_logger("tools.premium")
 
@@ -42,8 +47,7 @@ class PremiumCalculatorInput(BaseModel):
 class PremiumCalculatorTool(BaseTool):
     """
     保费估算工具。
-    基于年龄、性别、保额、保险期限和职业类别估算年度保费。
-    费率配置从 config/premium_rate.json 读取，不硬编码。
+    委托 PremiumService 执行业务计算，Tool 只负责参数接收和结果格式化。
     """
 
     name: str = "premium_calculator"
@@ -56,9 +60,9 @@ class PremiumCalculatorTool(BaseTool):
     args_schema: Type[BaseModel] = PremiumCalculatorInput
 
     def __init__(self, **kwargs: Any) -> None:
-        """初始化工具，加载费率配置。"""
+        """初始化工具，创建 PremiumService 实例。"""
         super().__init__(**kwargs)
-        self._rate_config: Dict[str, Any] = load_json(PREMIUM_RATE_PATH)
+        self._service = PremiumService()
 
     def _run(
         self,
@@ -88,11 +92,16 @@ class PremiumCalculatorTool(BaseTool):
 
         try:
             with Timer("premium_calculator 计算耗时") as timer:
-                result: Dict[str, Any] = self._calculate(
-                    age, gender, coverage_amount, insurance_term, occupation_class
+                # 委托 PremiumService 执行计算（Tool 不做业务逻辑）
+                result: Dict[str, Any] = self._service.calculate(
+                    age=age,
+                    gender=gender,
+                    coverage_amount=coverage_amount,
+                    insurance_term=insurance_term,
+                    occupation_class=occupation_class,
                 )
 
-                # 格式化输出
+                # 格式化为 LLM 可读文本
                 formatted: str = self._format_result(result)
 
                 logger.info(
@@ -110,96 +119,17 @@ class PremiumCalculatorTool(BaseTool):
             )
             return error_msg
 
-    def _calculate(
-        self,
-        age: int,
-        gender: str,
-        coverage_amount: float,
-        insurance_term: str,
-        occupation_class: str,
-    ) -> Dict[str, Any]:
-        """
-        核心保费计算逻辑。
-
-        Args:
-            age: 年龄
-            gender: 性别
-            coverage_amount: 保额（万元）
-            insurance_term: 保险期限
-            occupation_class: 职业类别
-
-        Returns:
-            包含各项系数和最终保费的字典
-        """
-        rate_table: Dict[str, Dict] = self._rate_config.get("rate_table", {})
-        gender_factor: Dict[str, float] = self._rate_config.get("gender_factor", {})
-        age_factor_config: Dict[str, Any] = self._rate_config.get("age_factor", {})
-        term_factor: Dict[str, float] = self._rate_config.get("term_factor", {})
-
-        # 1. 获取职业基础费率（每万元保额年费率）
-        if occupation_class not in rate_table:
-            raise ValueError(
-                f"未知职业类别: {occupation_class}，可选: {list(rate_table.keys())}"
-            )
-
-        occupation_info: Dict[str, Any] = rate_table[occupation_class]
-        base_rate: float = occupation_info["annual_rate_per_10k"]
-
-        # 2. 性别系数
-        if gender not in gender_factor:
-            raise ValueError(
-                f"性别参数无效: {gender}，可选: {list(gender_factor.keys())}"
-            )
-        g_factor: float = gender_factor[gender]
-
-        # 3. 年龄系数（每偏离基准年龄1岁增加 per_year_increase）
-        base_age: int = age_factor_config.get("base_age", 30)
-        per_year: float = age_factor_config.get("per_year_increase", 0.02)
-        age_diff: int = max(0, age - base_age)
-        a_factor: float = 1.0 + age_diff * per_year
-
-        # 4. 保险期限折扣系数
-        if insurance_term not in term_factor:
-            raise ValueError(
-                f"保险期限参数无效: {insurance_term}，可选: {list(term_factor.keys())}"
-            )
-        t_factor: float = term_factor[insurance_term]
-
-        # 5. 计算年度保费
-        # 公式：保额(万) × 基础费率(元/万/年) × 性别系数 × 年龄系数 × 期限系数
-        annual_premium: float = (
-            coverage_amount * base_rate * g_factor * a_factor * t_factor
-        )
-
-        # 月度保费
-        monthly_premium: float = annual_premium / 12.0
-
-        return {
-            "occupation_class": occupation_class,
-            "occupation_name": occupation_info.get("name", ""),
-            "occupation_examples": occupation_info.get("examples", ""),
-            "age": age,
-            "gender": gender,
-            "coverage_amount": coverage_amount,
-            "insurance_term": insurance_term,
-            "base_rate_per_10k": base_rate,
-            "gender_factor": g_factor,
-            "age_factor": round(a_factor, 4),
-            "term_factor": t_factor,
-            "annual_premium": round(annual_premium, 2),
-            "monthly_premium": round(monthly_premium, 2),
-        }
-
     def _format_result(self, result: Dict[str, Any]) -> str:
         """
-        将计算结果格式化为用户可读文本。
+        将 PremiumService.calculate() 的计算结果格式化为 LLM 可读文本。
 
         Args:
-            result: _calculate() 返回的计算结果
+            result: PremiumService.calculate() 返回的计算结果
 
         Returns:
             格式化后的保费说明文本
         """
+        breakdown: Dict[str, Any] = result.get("breakdown", {})
         return (
             f"【保费估算结果】\n"
             f"  被保险人信息: {result['age']}岁 {result['gender']}性, "
@@ -208,10 +138,10 @@ class PremiumCalculatorTool(BaseTool):
             f"  保险期限: {result['insurance_term']}\n"
             f"\n"
             f"【费率明细】\n"
-            f"  基础费率: {result['base_rate_per_10k']}元/万元/年\n"
-            f"  性别系数: {result['gender_factor']}\n"
-            f"  年龄系数: {result['age_factor']}\n"
-            f"  期限系数: {result['term_factor']}\n"
+            f"  基础费率: {breakdown.get('base_rate_per_10k', 'N/A')}元/万元/年\n"
+            f"  性别系数: {breakdown.get('gender_factor', 'N/A')}\n"
+            f"  年龄系数: {breakdown.get('age_factor', 'N/A')}\n"
+            f"  期限系数: {breakdown.get('term_factor', 'N/A')}\n"
             f"\n"
             f"【预估保费】\n"
             f"  年度保费: {result['annual_premium']}元/年\n"

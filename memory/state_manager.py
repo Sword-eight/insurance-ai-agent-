@@ -1,11 +1,11 @@
 """
 Insurance AI Agent - 状态管理器模块
-封装 LangGraph 的状态获取和历史管理。
+封装 LangGraph 的对话状态获取和历史管理。
+
+生命周期：graph 由 init_services() 创建后注入，StateManager 不自行创建任何对象。
 """
 
-from typing import Any, Dict, List, Optional
-
-from langgraph.checkpoint.memory import InMemorySaver
+from typing import Any, Dict, List
 
 from config import MEMORY_CONFIG
 from utils.logger import get_logger
@@ -17,18 +17,19 @@ class StateManager:
     """
     状态管理器。
     负责获取对话历史、清除会话状态等操作。
+
+    所有方法通过 self._graph 访问状态，不再需要调用方传入 graph 参数。
     """
 
-    def __init__(self, checkpointer: InMemorySaver) -> None:
+    def __init__(self, graph: Any) -> None:
         """
         Args:
-            checkpointer: LangGraph 检查点保存器
+            graph: LangGraph 编译后的 StateGraph（含 checkpointer）
         """
-        self._checkpointer = checkpointer
+        self._graph = graph
 
     def get_conversation_history(
         self,
-        graph,
         session_id: str = "default",
         max_rounds: int | None = None,
     ) -> List[Dict[str, Any]]:
@@ -36,7 +37,6 @@ class StateManager:
         获取指定会话的对话历史。
 
         Args:
-            graph: LangGraph 编译后的图
             session_id: 会话 ID
             max_rounds: 最大返回轮数，默认使用配置值
 
@@ -47,7 +47,7 @@ class StateManager:
         thread: dict = {"configurable": {"thread_id": session_id}}
 
         try:
-            state = graph.get_state(thread)
+            state = self._graph.get_state(thread)
             if state is None or state.values is None:
                 return []
 
@@ -82,14 +82,16 @@ class StateManager:
             return []
 
     def clear_session(
-        self, graph, session_id: str = "default"
+        self, session_id: str = "default"
     ) -> Dict[str, Any]:
         """
-        清除指定会话的历史记录（通过创建新线程实现）。
+        清除指定会话的历史记录。
+
+        注意：InMemorySaver 不支持直接删除单个线程，
+        当前实现通过标记实现——下次使用相同 session_id 时将覆盖旧状态。
 
         Args:
-            graph: LangGraph 编译后的图
-            session_id: 会话 ID（将被标记为已清除）
+            session_id: 会话 ID
 
         Returns:
             操作结果
@@ -102,13 +104,12 @@ class StateManager:
         }
 
     def get_tool_results(
-        self, graph, session_id: str = "default"
+        self, session_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """
         获取指定会话的 Tool 调用记录。
 
         Args:
-            graph: LangGraph 编译后的图
             session_id: 会话 ID
 
         Returns:
@@ -117,7 +118,7 @@ class StateManager:
         thread: dict = {"configurable": {"thread_id": session_id}}
 
         try:
-            state = graph.get_state(thread)
+            state = self._graph.get_state(thread)
             if state is None or state.values is None:
                 return []
 
