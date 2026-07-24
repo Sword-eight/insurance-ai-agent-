@@ -1,7 +1,6 @@
 """
 向后兼容 stub — Retriever 现为 LangChainRetriever。
-新代码请直接使用 rag.langchain.retriever.LangChainRetriever 或
-通过 KnowledgeService.get_retriever() 获取 BaseRetriever 实例。
+新代码请使用 RetrievalService 作为检索入口，不要直接调 Retriever。
 """
 from rag.langchain.retriever import LangChainRetriever as Retriever
 

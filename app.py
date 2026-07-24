@@ -43,6 +43,7 @@ init_sessions()
 
 knowledge_service = services["knowledge_service"]
 graph_builder = services["graph_builder"]
+retrieval_service = services["retrieval_service"]
 
 # ── 侧边栏 ──────────────────────────────────────────────────────
 from application.handlers import (
@@ -62,6 +63,7 @@ def _on_engine_change(new_engine: str) -> None:
 
 render_sidebar(
     knowledge_service=knowledge_service,
+    retrieval_service=retrieval_service,
     current_engine=st.session_state._current_rag_engine,
     on_engine_change=_on_engine_change,
     on_upload=lambda files: handle_pdf_upload(files, knowledge_service),

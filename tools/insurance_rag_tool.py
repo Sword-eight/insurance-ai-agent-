@@ -2,7 +2,7 @@
 Insurance AI Agent - 保险知识库检索工具
 封装 RAG 检索为 LangChain Tool，供 LangGraph Agent 调用。
 
-生命周期：Retriever 由 init_services() 创建后注入，Tool 不自行 new。
+生命周期：RetrievalService 由 init_services() 创建后注入，Tool 不直接调 Retriever。
 """
 
 from typing import Any, Dict, Type
@@ -10,7 +10,7 @@ from typing import Any, Dict, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from rag.base_retriever import BaseRetriever
+from services.retrieval_service import RetrievalService
 from utils.logger import get_logger
 from utils.helpers import Timer
 
@@ -29,10 +29,9 @@ class InsuranceRAGInput(BaseModel):
 class InsuranceRAGTool(BaseTool):
     """
     保险知识库检索工具。
-    基于 RAG 管道检索保险条款、理赔规则等信息，
-    返回检索到的文本片段及来源引用。
+    委托 RetrievalService 执行检索 + 格式化，Tool 只负责 LangChain 接口适配。
 
-    依赖注入：Retriever 由外部创建并注入，Tool 不关心底层实现。
+    依赖注入：RetrievalService 由外部创建并注入。
     """
 
     name: str = "insurance_rag_search"
@@ -45,18 +44,19 @@ class InsuranceRAGTool(BaseTool):
     )
     args_schema: Type[BaseModel] = InsuranceRAGInput
 
-    # 检索器实例（外部注入）
-    _retriever: BaseRetriever
+    # 检索服务（外部注入）
+    _service: RetrievalService
 
-    def __init__(self, retriever: BaseRetriever, **kwargs: Any) -> None:
+    def __init__(self, service: RetrievalService, **kwargs: Any) -> None:
         """
         Args:
-            retriever: 检索器实例（LangChainRetriever 或 LlamaIndexRetriever）
+            service: RetrievalService 实例（唯一检索入口）
         """
         super().__init__(**kwargs)
-        self._retriever = retriever
+        self._service = service
         logger.info(
-            f"InsuranceRAGTool 初始化: retriever={type(self._retriever).__name__}"
+            f"InsuranceRAGTool 初始化: "
+            f"service.retriever={self._service.retriever_type}"
         )
 
     def _run(self, query: str) -> str:
@@ -67,21 +67,19 @@ class InsuranceRAGTool(BaseTool):
             query: 检索查询文本
 
         Returns:
-            格式化后的检索结果文本
+            格式化后的检索结果文本（LLM 可直接使用）
         """
         logger.info(f"[Tool] insurance_rag_search 被调用: query='{query[:80]}...'")
 
         try:
             with Timer("insurance_rag_search 总耗时") as timer:
-                result: Dict[str, Any] = self._retriever.retrieve(
-                    query=query, top_k=5
-                )
-
-                formatted: str = self._retriever.format_retrieval_for_llm(result)
+                # 委托 Service 层（唯一检索入口）
+                result = self._service.search(query=query)
+                formatted: str = self._service.format_for_llm(result)
 
                 logger.info(
                     f"[Tool] insurance_rag_search 完成: "
-                    f"返回 {result['total_results']} 条结果, "
+                    f"返回 {result.total_found} 条结果, "
                     f"耗时 {timer.elapsed:.4f}s"
                 )
 

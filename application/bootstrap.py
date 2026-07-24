@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 from services.knowledge_service import KnowledgeService
 from services.premium_service import PremiumService
+from services.retrieval_service import RetrievalService
 from tools.insurance_rag_tool import InsuranceRAGTool
 from tools.premium_calculator_tool import PremiumCalculatorTool
 from graph.graph_builder import AgentGraphBuilder
@@ -61,8 +62,8 @@ def init_services(rag_engine: str = "langchain") -> Dict[str, Any]:
         builder = LlamaIndexBuilder()
         retriever = LlamaIndexRetriever(builder=builder)
 
-    # ── Step 2: KnowledgeService（Builder + Retriever 注入）─────
-    knowledge_service = KnowledgeService(builder=builder, retriever=retriever)
+    # ── Step 2: KnowledgeService（仅 Builder 注入）──────────────
+    knowledge_service = KnowledgeService(builder=builder)
 
     # 自动加载或构建知识库
     if not knowledge_service.get_stats().get("index_exists"):
@@ -70,14 +71,17 @@ def init_services(rag_engine: str = "langchain") -> Dict[str, Any]:
     else:
         knowledge_service.load_existing_index()
 
-    # ── Step 3: PremiumService ─────────────────────────────────
+    # ── Step 3: RetrievalService（Retriever 注入）──────────────
+    retrieval_service = RetrievalService(retriever=retriever)
+
+    # ── Step 4: PremiumService ─────────────────────────────────
     premium_service = PremiumService()
 
-    # ── Step 4: Tools（全部依赖注入）───────────────────────────
-    rag_tool = InsuranceRAGTool(retriever=retriever)
+    # ── Step 5: Tools（全部依赖注入）───────────────────────────
+    rag_tool = InsuranceRAGTool(service=retrieval_service)
     premium_tool = PremiumCalculatorTool(premium_service=premium_service)
 
-    # ── Step 5: Agent + State ──────────────────────────────────
+    # ── Step 6: Agent + State ──────────────────────────────────
     graph_builder = AgentGraphBuilder(tools=[rag_tool, premium_tool])
     state_manager = StateManager(graph=graph_builder.graph)
 
@@ -89,6 +93,7 @@ def init_services(rag_engine: str = "langchain") -> Dict[str, Any]:
 
     return {
         "knowledge_service": knowledge_service,
+        "retrieval_service": retrieval_service,
         "graph_builder": graph_builder,
         "state_manager": state_manager,
     }

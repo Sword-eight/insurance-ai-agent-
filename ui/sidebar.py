@@ -25,6 +25,7 @@ from ui.components import (
 def render(
     *,
     knowledge_service: Any,
+    retrieval_service: Any,
     current_engine: str,
     on_engine_change: Callable[[str], None],
     on_upload: Callable[[List[Any]], Dict[str, Any]],
@@ -36,7 +37,8 @@ def render(
     渲染侧边栏全部内容。
 
     Args:
-        knowledge_service: KnowledgeService 实例
+        knowledge_service: KnowledgeService 实例（索引管理）
+        retrieval_service: RetrievalService 实例（检索入口）
         current_engine:   当前 RAG 引擎名
         on_engine_change: 引擎切换回调（接收新引擎名）
         on_upload:        PDF 上传回调（接收文件列表，返回结果）
@@ -60,7 +62,7 @@ def render(
         st.divider()
         _render_log_viewer(project_root)
         st.divider()
-        _render_developer_panel(knowledge_service, current_engine)
+        _render_developer_panel(knowledge_service, retrieval_service, current_engine)
         _render_about()
 
 
@@ -205,17 +207,17 @@ def _render_log_viewer(project_root: Path) -> None:
 
 def _render_developer_panel(
     knowledge_service: Any,
+    retrieval_service: Any,
     current_engine: str,
 ) -> None:
     """渲染开发者调试面板。"""
     with st.expander("🛠️ Developer Panel"):
         stats = knowledge_service.get_stats()
-        retriever = knowledge_service.get_retriever()
         developer_panel(
             current_engine=current_engine,
             kb_stats=stats,
-            retriever_type=type(retriever).__name__,
-            top_k=VECTOR_STORE_CONFIG["top_k"],
+            retriever_type=retrieval_service.retriever_type,
+            top_k=retrieval_service.top_k,
         )
 
 

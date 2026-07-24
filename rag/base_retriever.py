@@ -1,22 +1,92 @@
 """
-Insurance AI Agent - 检索器抽象基类
-定义统一检索接口，所有 RAG 实现（LangChain、LlamaIndex 等）必须实现此接口。
+Insurance AI Agent - 检索器抽象基类 & 统一数据结构
+定义检索 Repository 层的最小接口和数据契约。
+
+设计原则：
+  - BaseRetriever 只做数据访问：query → RetrievalResult
+  - 不做格式化（format_for_llm → Service 层）
+  - 不做索引管理（get_stats/rebuild/delete → BaseIndexBuilder）
+  - RetrievalDocument 是引擎归一化后的统一文档结构
+  - RetrievalResult 是检索操作的完整审计记录（支持 Benchmark / Trace / UI）
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 
+# ==================================================================
+# 统一数据结构
+# ==================================================================
+
+@dataclass
+class RetrievalDocument:
+    """
+    检索到的单个文档——引擎归一化后的统一结构。
+
+    所有 Retriever 实现（LangChain / LlamaIndex / ...）
+    必须在返回前将各自的 metadata 格式归一化到此结构。
+    """
+
+    content: str
+    """文档文本内容。"""
+
+    source_name: str = ""
+    """来源文件名（如 "保险条款.pdf"）。"""
+
+    source_page: int = 0
+    """来源页码（从 1 开始，0 表示无页码信息）。"""
+
+    similarity_score: float = 0.0
+    """相似度分数（0.0 ~ 1.0，越高越相关）。"""
+
+    engine: str = ""
+    """检索引擎标识（如 "langchain" / "llamaindex"）。"""
+
+    raw_metadata: Dict[str, Any] = field(default_factory=dict)
+    """原始元数据（引擎特有字段，调试用）。"""
+
+
+@dataclass
+class RetrievalResult:
+    """
+    检索操作的完整结果——审计记录。
+
+    包含查询信息、文档列表、耗时、引擎信息，
+    支持 Benchmark 对比、Trace 排查、UI 可视化。
+    """
+
+    query: str
+    """原始查询文本。"""
+
+    documents: List[RetrievalDocument] = field(default_factory=list)
+    """检索到的文档列表（按相似度降序）。"""
+
+    total_found: int = 0
+    """向量库实际匹配到的总数（可能 > len(documents)，因为有 top_k 截断）。"""
+
+    retrieval_time_ms: float = 0.0
+    """纯向量检索耗时（毫秒），不含格式化。"""
+
+    engine: str = ""
+    """检索引擎标识。"""
+
+    applied_filters: Dict[str, Any] = field(default_factory=dict)
+    """检索时应用的过滤条件（预留 metadata filter 等）。"""
+
+
+# ==================================================================
+# 抽象基类
+# ==================================================================
+
 class BaseRetriever(ABC):
     """
-    检索器抽象基类。
+    检索器抽象基类——Repository 层接口。
+
+    唯一职责：接收 query 字符串，返回 RetrievalResult。
 
     所有 RAG 实现（LangChainRetriever / LlamaIndexRetriever / ...）
-    必须实现此接口的全部方法，确保上层调用方无需感知具体实现。
-
-    设计原则（开闭原则）：
-        对扩展开放 — 新增第三种 RAG 实现只需继承此基类。
-        对修改关闭 — KnowledgeService / InsuranceRAGTool 只依赖此抽象。
+    必须实现此接口。
     """
 
     @abstractmethod
@@ -25,62 +95,16 @@ class BaseRetriever(ABC):
         query: str,
         top_k: int = 5,
         score_threshold: float = 0.0,
-    ) -> Dict[str, Any]:
+    ) -> RetrievalResult:
         """
-        执行检索并返回结构化结果。
+        执行向量检索并返回结构化结果。
 
         Args:
-            query: 查询问题
-            top_k: 返回结果数量
-            score_threshold: 相似度阈值（低于此值的结果将被过滤）
+            query:           查询文本
+            top_k:           返回的最大文档数
+            score_threshold: 最低相似度阈值（低于此值的文档被过滤）
 
         Returns:
-            检索结果字典，必须包含以下键：
-            - query: str          原始查询
-            - results: List[Dict] 检索结果列表（每项含 page_content, metadata, similarity_score）
-            - total_results: int  结果数量
-            - retrieval_time: float  检索耗时（秒）
-            - top_k: int          请求的结果数量
+            RetrievalResult — 包含归一化后的文档列表和检索元数据
         """
-        ...
-
-    @abstractmethod
-    def format_retrieval_for_llm(self, retrieval_result: Dict[str, Any]) -> str:
-        """
-        将检索结果格式化为 LLM 可读的文本。
-
-        Args:
-            retrieval_result: retrieve() 方法返回的结果字典
-
-        Returns:
-            格式化后的文本字符串（中文，含来源引用和相似度标注）
-        """
-        ...
-
-    @abstractmethod
-    def get_stats(self) -> Dict[str, Any]:
-        """
-        获取知识库统计信息。
-
-        Returns:
-            统计信息字典，包含但不限于：
-            - index_loaded / index_exists
-            - total_vectors
-            - embedding_model
-        """
-        ...
-
-    @abstractmethod
-    def rebuild_index(self, chunks: List[Dict[str, Any]]) -> None:
-        """
-        用新的文档块重建索引（删除旧索引后重新构建）。
-
-        Args:
-            chunks: 文档块列表，每项含 page_content 和 metadata
-        """
-        ...
-
-    @abstractmethod
-    def delete_index(self) -> None:
-        """删除当前索引（包括磁盘文件）。"""
         ...

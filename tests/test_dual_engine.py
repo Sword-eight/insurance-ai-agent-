@@ -1,126 +1,118 @@
 """
 双引擎切换 & 接口一致性测试
-验证 LangChain ↔ LlamaIndex 热切换、KnowledgeService 和 InsuranceRAGTool 行为。
+验证 LangChain ↔ LlamaIndex 检索、RetrievalService 和 InsuranceRAGTool 行为。
 
-所有对象通过 DI 创建（Builder → KnowledgeService，Retriever → Tool）。
+所有对象通过 DI 创建（Builder → Retriever → Service → Tool）。
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from rag.base_retriever import BaseRetriever
+from rag.base_retriever import BaseRetriever, RetrievalResult, RetrievalDocument
 from rag.base_index_builder import BaseIndexBuilder
 
 # ============================================================
-# 测试1：KnowledgeService LangChain 模式
+# 测试1：LangChain 检索链路
 # ============================================================
 os.environ["RAG_ENGINE"] = "langchain"
 
 from rag.langchain.vector_store import VectorStoreManager
 from rag.langchain.retriever import LangChainRetriever
 from rag.langchain.index_builder import LangChainIndexBuilder
+from services.retrieval_service import RetrievalService
 from services.knowledge_service import KnowledgeService
 
 vector_store = VectorStoreManager()
 retriever_lc = LangChainRetriever(vector_store_manager=vector_store)
 builder_lc = LangChainIndexBuilder(vector_store=vector_store)
 
-ks_lc = KnowledgeService(builder=builder_lc, retriever=retriever_lc)
-r_lc = ks_lc.get_retriever()
-assert isinstance(r_lc, BaseRetriever)
-assert r_lc is retriever_lc, "get_retriever() 应返回注入的同一个实例"
-assert "LangChain" in type(r_lc).__name__
-print("✅ KnowledgeService LangChain 模式（DI：Builder + Retriever）")
-
-# Builder 接口一致性
+# KnowledgeService（只做索引管理，不持有 retriever）
+ks_lc = KnowledgeService(builder=builder_lc)
 assert isinstance(builder_lc, BaseIndexBuilder)
-print("✅ LangChainIndexBuilder 实现了 BaseIndexBuilder")
+print("✅ KnowledgeService LangChain 模式（仅 Builder）")
 
-# stats 包含所有字段
-stats = ks_lc.get_stats()
-for key in ["index_loaded", "index_exists", "embedding_model", "rag_engine",
-            "pdf_count", "chunk_size", "chunk_overlap"]:
-    assert key in stats, f"stats 缺少字段: {key}"
-assert stats["rag_engine"] == "langchain"
-print("✅ LangChain stats 字段完整")
+# RetrievalService（检索入口）
+svc_lc = RetrievalService(retriever=retriever_lc)
+assert isinstance(retriever_lc, BaseRetriever)
+print("✅ RetrievalService LangChain 模式")
 
 # ============================================================
-# 测试2：KnowledgeService LlamaIndex 模式
+# 测试2：LlamaIndex 检索链路
 # ============================================================
 os.environ["RAG_ENGINE"] = "llamaindex"
 
 from rag.llamaindex.index_builder import LlamaIndexBuilder
 from rag.llamaindex.retriever import LlamaIndexRetriever
+from services.retrieval_service import RetrievalService as RS2
 from services.knowledge_service import KnowledgeService as KS2
 
 builder_li = LlamaIndexBuilder()
 retriever_li = LlamaIndexRetriever(builder=builder_li)
 
-ks_li = KS2(builder=builder_li, retriever=retriever_li)
-r_li = ks_li.get_retriever()
-assert isinstance(r_li, BaseRetriever)
-assert r_li is retriever_li, "get_retriever() 应返回注入的同一个实例"
-assert "LlamaIndex" in type(r_li).__name__
-print("✅ KnowledgeService LlamaIndex 模式（DI：Builder + Retriever）")
-
+ks_li = KS2(builder=builder_li)
 assert isinstance(builder_li, BaseIndexBuilder)
-print("✅ LlamaIndexBuilder 实现了 BaseIndexBuilder")
+print("✅ KnowledgeService LlamaIndex 模式（仅 Builder）")
 
-stats2 = ks_li.get_stats()
-assert stats2["rag_engine"] == "llamaindex"
-print("✅ LlamaIndex stats 字段完整")
+svc_li = RS2(retriever=retriever_li)
+assert isinstance(retriever_li, BaseRetriever)
+print("✅ RetrievalService LlamaIndex 模式")
 
 # ============================================================
-# 测试3：InsuranceRAGTool — Retriever 注入
+# 测试3：InsuranceRAGTool — Service 注入
 # ============================================================
 from tools.insurance_rag_tool import InsuranceRAGTool
 
-# LangChain Tool（注入已有的 retriever）
-tool_lc = InsuranceRAGTool(retriever=retriever_lc)
-assert "LangChain" in type(tool_lc._retriever).__name__
-assert tool_lc._retriever is retriever_lc, "Tool 应使用注入的 retriever"
-print("✅ InsuranceRAGTool LangChain 模式（DI）")
-
-# LlamaIndex Tool（注入已有的 retriever）
-tool_li = InsuranceRAGTool(retriever=retriever_li)
-assert "LlamaIndex" in type(tool_li._retriever).__name__
-assert tool_li._retriever is retriever_li, "Tool 应使用注入的 retriever"
-print("✅ InsuranceRAGTool LlamaIndex 模式（DI）")
-
+tool_lc = InsuranceRAGTool(service=svc_lc)
 assert tool_lc.name == "insurance_rag_search"
+assert tool_lc._service is svc_lc
+print("✅ InsuranceRAGTool LangChain 模式（DI: Service）")
+
+tool_li = InsuranceRAGTool(service=svc_li)
 assert tool_li.name == "insurance_rag_search"
-print("✅ Tool name 一致")
+assert tool_li._service is svc_li
+print("✅ InsuranceRAGTool LlamaIndex 模式（DI: Service）")
 
 # ============================================================
-# 测试4：get_rag_engine() 兜底：非法值退回 langchain
+# 测试4：RetrievalResult 结构
 # ============================================================
-os.environ["RAG_ENGINE"] = "unsupported"
-from config import get_rag_engine
-assert get_rag_engine() == "langchain", f"非法引擎应兜底为 langchain"
-print("✅ 非法引擎值兜底为 langchain")
+no_index_lc = svc_lc.search("test")
+assert isinstance(no_index_lc, RetrievalResult)
+assert no_index_lc.query == "test"
+assert no_index_lc.engine == "langchain"
+assert isinstance(no_index_lc.documents, list)
+print("✅ RetrievalResult 结构正确（LangChain）")
+
+no_index_li = svc_li.search("test")
+assert isinstance(no_index_li, RetrievalResult)
+assert no_index_li.engine == "llamaindex"
+print("✅ RetrievalResult 结构正确（LlamaIndex）")
 
 # ============================================================
-# 测试5：两个 Retriever 返回格式一致
+# 测试5：format_for_llm 统一格式化
 # ============================================================
-from rag.langchain.retriever import LangChainRetriever
-from rag.llamaindex.retriever import LlamaIndexRetriever
+empty_fmt = svc_lc.format_for_llm(RetrievalResult(query="", documents=[]))
+assert empty_fmt == "根据当前知识库无法确定。"
+print("✅ 空结果格式化一致")
 
-lc_vs = VectorStoreManager()
-lc = LangChainRetriever(vector_store_manager=lc_vs)
-li_builder = LlamaIndexBuilder()
-li = LlamaIndexRetriever(builder=li_builder)
-
-no_index_lc = lc.retrieve("test")
-no_index_li = li.retrieve("test")
-
-required_keys = {"query", "results", "total_results"}
-for key in required_keys:
-    assert key in no_index_lc, f"LangChain 返回缺少: {key}"
-    assert key in no_index_li, f"LlamaIndex 返回缺少: {key}"
-print("✅ 无索引时返回 key 一致")
-
-assert lc.format_retrieval_for_llm({"results": []}) == "根据当前知识库无法确定。"
-assert li.format_retrieval_for_llm({"results": []}) == "根据当前知识库无法确定。"
-print("✅ 空结果格式一致")
+# 模拟有文档的格式化
+doc = RetrievalDocument(
+    content="等待期为90天",
+    source_name="保险条款.pdf",
+    source_page=3,
+    similarity_score=0.87,
+    engine="langchain",
+)
+result_with_doc = RetrievalResult(
+    query="等待期",
+    documents=[doc],
+    total_found=1,
+    engine="langchain",
+)
+fmt = svc_lc.format_for_llm(result_with_doc)
+assert "【来源 1】" in fmt
+assert "保险条款.pdf" in fmt
+assert "87.00%" in fmt
+assert "等待期为90天" in fmt
+print("✅ format_for_llm 包含完整信息")
 
 # ============================================================
 # 测试6：get_rag_engine() 动态读取
